@@ -65,4 +65,4 @@ Adjust `classes` to control the iframe height. `h-10` works well for the two-row
 
 ## Screenshots
 
-_Coming soon._
+<img width="787" height="139" alt="image" src="https://github.com/user-attachments/assets/24902636-16a9-4957-abda-6b91b1530709" />
