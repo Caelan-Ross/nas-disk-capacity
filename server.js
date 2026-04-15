@@ -11,37 +11,47 @@ const POOL_NAME = process.env.POOL_NAME || 'temp_pool';
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Proxy endpoint: fetches pool data from TrueNAS API
+// Use /pool/dataset root entry for accurate usable ZFS capacity.
+// /api/v2.0/pool returns raw vdev totals which double-count parity on RAIDZ.
 app.get('/api/pool', (req, res) => {
   const options = {
     hostname: TRUENAS_HOST,
     port: 443,
-    path: '/api/v2.0/pool',
+    path: `/api/v2.0/pool/dataset?id=${encodeURIComponent(POOL_NAME)}`,
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${TRUENAS_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    rejectUnauthorized: false, // self-signed cert support
+    rejectUnauthorized: false,
   };
 
   const request = https.request(options, (response) => {
     let data = '';
     response.on('data', chunk => data += chunk);
     response.on('end', () => {
+      if (response.statusCode !== 200) {
+        return res.status(response.statusCode).json({
+          error: `TrueNAS returned HTTP ${response.statusCode}`,
+          detail: data.trim(),
+        });
+      }
       try {
-        const pools = JSON.parse(data);
-        const pool = pools.find(p => p.name === POOL_NAME) || pools[0];
+        const datasets = JSON.parse(data);
+        // ?id= returns an array; first entry is the root dataset
+        const root = Array.isArray(datasets) ? datasets[0] : datasets;
 
-        if (!pool) {
-          return res.status(404).json({ error: 'Pool not found' });
+        if (!root) {
+          return res.status(404).json({ error: `Dataset '${POOL_NAME}' not found` });
         }
-        const used = pool.size - pool.free;
-        const total = pool.size;
-        const percent = total > 0 ? (used / total) * 100 : 0;
+
+        const used  = root.used?.parsed ?? 0;
+        const avail = root.available?.parsed ?? 0;
+        const total = used + avail;
+        const percent   = total > 0 ? (used / total) * 100 : 0;
 
         res.json({
-          pool: pool.name,
+          pool: root.name,
           used_bytes: used,
           total_bytes: total,
           percent: parseFloat(percent.toFixed(2)),
